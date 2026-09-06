@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+data/secrets.json
+include/secrets.h
+*.env
+.DS_Store
