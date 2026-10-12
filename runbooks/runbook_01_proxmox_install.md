@@ -5,7 +5,7 @@
 **Prereqs:**
 - Proxmox VE ISO (currently 9.2-1, grab latest from https://www.proxmox.com/en/downloads)
 - USB stick ≥ 2 GB (anything on it will be wiped)
-- MacBook with a USB-to-Ethernet dongle, Ethernet cable to the HP, or a long enough Ethernet cable to the AirFiber/TP-Link
+- a long enough Ethernet cable from router to the to be proxmox server
 - HP backed up — install wipes the whole 2 TB HDD
 
 **Expected time:** 60–90 min (first time, with reading)
@@ -61,7 +61,7 @@ If using the MacBook as a temporary gateway:
 
 - System Settings → General → Sharing → Internet Sharing (details with the (i)).
 - "Share your connection from": **Wi-Fi**
-- "To computers using": tick **the specific USB adapter** that matches your dongle (e.g. "USB 10/100 LAN"). macOS lists multiple candidates — pick the one matching the dongle you're actually plugging in.
+- "To computers using": tick **the specific USB adapter** that matches your dongle (e.g. "USB 10/100 LAN"). macOS lists multiple candidates — pick the one matching the dongle you're actually plugging in. In this case it was '10/100/1000 LAN'
 - Toggle Internet Sharing off, confirm, then on again.
 
 **Verify from the Mac** that sharing attached to the right interface — macOS Internet Sharing silently sticks to the wrong interface sometimes:
@@ -70,6 +70,8 @@ If using the MacBook as a temporary gateway:
 ifconfig en5   # or whichever interface is your dongle
 # want: inet 192.168.2.1 ... (or wherever bridge100 lives)
 # NOT: inet 169.254.x.x (that's self-assigned, means sharing isn't attached)
+
+or
 
 ifconfig bridge100
 # want: en5 listed as a member
