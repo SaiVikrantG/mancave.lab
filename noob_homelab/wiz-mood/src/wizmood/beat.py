@@ -46,13 +46,14 @@ class BeatEngine:
     def update(
         self,
         rgb: tuple[int, int, int],
-        brightness: int,
+        bright_high: int,
+        bright_low: int,
         bpm: float,
         progress_ms: int,
     ) -> None:
         self._rgb = rgb
-        self._bright_high = brightness
-        self._bright_low = max(10, int(brightness * 0.55))
+        self._bright_high = bright_high
+        self._bright_low = max(10, bright_low)
         self._bpm = _clamp_bpm(bpm) if bpm > 0 else 0.0
         self._anchor_song_ms = float(progress_ms)
         self._anchor_wall = time.monotonic()

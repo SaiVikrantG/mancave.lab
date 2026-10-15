@@ -54,7 +54,8 @@ async def run() -> None:
                     state = map_features(cached_features)
                     beat.update(
                         rgb=state.rgb,
-                        brightness=state.brightness,
+                        bright_high=state.bright_high,
+                        bright_low=state.bright_low,
                         bpm=cached_features.tempo,
                         progress_ms=np.progress_ms,
                     )
