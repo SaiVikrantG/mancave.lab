@@ -1,0 +1,17 @@
+[project]
+name = "wizmood"
+version = "0.1.0"
+description = "Spotify-reactive WiZ bulb controller, running as an LXC service on the homelab"
+requires-python = ">=3.11"
+dependencies = [
+    "pywizlight>=0.6.0",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

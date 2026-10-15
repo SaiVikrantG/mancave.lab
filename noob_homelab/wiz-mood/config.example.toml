@@ -1,0 +1,11 @@
+[bulb]
+ip = "192.168.31.215"
+
+[spotify]
+client_id = ""
+client_secret = ""
+refresh_token = ""
+poll_interval_seconds = 5
+
+[reccobeats]
+base_url = "https://api.reccobeats.com/v1"
