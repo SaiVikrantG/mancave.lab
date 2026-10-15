@@ -1,18 +1,73 @@
 import asyncio
 import logging
 
+import uvicorn
+
 from wizmood.beat import BeatEngine
 from wizmood.bulb import Bulb
 from wizmood.config import load
 from wizmood.mapping import map_features
 from wizmood.reccobeats import AudioFeatures, ReccoBeatsClient
 from wizmood.spotify import SpotifyClient
+from wizmood.state import State
+from wizmood.web import build_app
 
 log = logging.getLogger("wizmood")
 
 
+async def _poll_loop(
+    cfg,
+    state: State,
+    spotify: SpotifyClient,
+    reccobeats: ReccoBeatsClient,
+    beat: BeatEngine,
+) -> None:
+    last_id: str | None = None
+    cached_features: AudioFeatures | None = None
+
+    while True:
+        np = await spotify.currently_playing()
+
+        if np is None or not np.is_playing:
+            state.is_playing = False
+            if last_id is not None:
+                log.info("paused / nothing playing")
+                beat.disable()
+                last_id = None
+                cached_features = None
+        else:
+            state.is_playing = True
+            state.track_id = np.track_id
+            state.track_name = np.name
+            state.track_artist = np.artist
+
+            if np.track_id != last_id:
+                log.info("now: %s - %s", np.artist, np.name)
+                last_id = np.track_id
+                cached_features = await reccobeats.features_for_spotify_track(np.track_id)
+                if cached_features is None:
+                    log.info("no features; leaving bulb unchanged")
+                else:
+                    state.energy = cached_features.energy
+                    state.valence = cached_features.valence
+                    state.tempo = cached_features.tempo
+
+            if cached_features is not None:
+                mapped = map_features(state, cached_features)
+                beat.update(
+                    rgb=mapped.rgb,
+                    bright_high=mapped.bright_high,
+                    bright_low=mapped.bright_low,
+                    bpm=cached_features.tempo,
+                    progress_ms=np.progress_ms,
+                )
+
+        await asyncio.sleep(cfg.spotify.poll_interval_seconds)
+
+
 async def run() -> None:
     cfg = load()
+    state = State()
 
     bulb = Bulb(cfg.bulb.ip)
     await bulb.set((140, 60, 180), 40)
@@ -25,42 +80,18 @@ async def run() -> None:
         cfg.spotify.refresh_token,
     )
     reccobeats = ReccoBeatsClient(cfg.reccobeats.base_url)
-    beat = BeatEngine(bulb)
+    beat = BeatEngine(bulb, state)
     beat.start()
 
+    app = build_app(state)
+    uv_config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="warning")
+    server = uvicorn.Server(uv_config)
+    server_task = asyncio.create_task(server.serve())
+
+    poll_task = asyncio.create_task(_poll_loop(cfg, state, spotify, reccobeats, beat))
+
     try:
-        last_id: str | None = None
-        cached_features: AudioFeatures | None = None
-
-        while True:
-            np = await spotify.currently_playing()
-
-            if np is None or not np.is_playing:
-                if last_id is not None:
-                    log.info("paused / nothing playing; bulb off")
-                    beat.disable()
-                    await bulb.off()
-                    last_id = None
-                    cached_features = None
-            else:
-                if np.track_id != last_id:
-                    log.info("now: %s - %s", np.artist, np.name)
-                    last_id = np.track_id
-                    cached_features = await reccobeats.features_for_spotify_track(np.track_id)
-                    if cached_features is None:
-                        log.info("no features; leaving bulb unchanged")
-
-                if cached_features is not None:
-                    state = map_features(cached_features)
-                    beat.update(
-                        rgb=state.rgb,
-                        bright_high=state.bright_high,
-                        bright_low=state.bright_low,
-                        bpm=cached_features.tempo,
-                        progress_ms=np.progress_ms,
-                    )
-
-            await asyncio.sleep(cfg.spotify.poll_interval_seconds)
+        await asyncio.gather(poll_task, server_task)
     finally:
         await beat.stop()
         await spotify.close()

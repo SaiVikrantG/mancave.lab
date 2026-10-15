@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wizmood</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+    background: #0b0d10;
+    color: #e6e6e6;
+    padding: 24px;
+    max-width: 760px;
+    margin-inline: auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 24px; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8f98; margin: 32px 0 12px; font-weight: 600; }
+  .card { background: #141821; border: 1px solid #1f2733; border-radius: 10px; padding: 16px; }
+  .row { display: flex; gap: 12px; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  .label { color: #8a8f98; min-width: 90px; }
+  .value { color: #e6e6e6; font-variant-numeric: tabular-nums; }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 6px;
+    border: 1px solid #1f2733;
+    display: inline-block; vertical-align: middle;
+  }
+  input[type=color] { width: 44px; height: 32px; border: 0; background: transparent; padding: 0; cursor: pointer; }
+  input[type=range] { width: 240px; }
+  input[type=number] { width: 70px; background: #0b0d10; color: #e6e6e6; border: 1px solid #1f2733; border-radius: 6px; padding: 4px 6px; }
+  button {
+    background: #1f2733; border: 1px solid #2a3340; border-radius: 6px;
+    color: #e6e6e6; padding: 6px 12px; cursor: pointer; font: inherit;
+  }
+  button.on { background: #2e4e2e; border-color: #3f6f3f; }
+  .grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .corner { display: flex; align-items: center; gap: 10px; }
+  .corner span { flex: 1; }
+  .big { font-size: 15px; font-weight: 500; }
+  code { font: 12px ui-monospace, SF Mono, monospace; color: #a0b3c8; }
+</style>
+</head>
+<body>
+
+<h1>wizmood dashboard</h1>
+
+<div class="card">
+  <h2 style="margin-top: 0;">now</h2>
+  <div class="row"><span class="label">playing</span><span class="value big" id="track">—</span></div>
+  <div class="row"><span class="label">features</span><span class="value" id="features">—</span></div>
+  <div class="row"><span class="label">bulb</span>
+    <span class="swatch" id="swatch"></span>
+    <span class="value" id="bulb">—</span>
+  </div>
+</div>
+
+<h2>palette (corners)</h2>
+<div class="card grid4">
+  <label class="corner"><input type="color" data-corner="sad"><span>sad (low valence, low energy)</span></label>
+  <label class="corner"><input type="color" data-corner="calm"><span>calm (high valence, low energy)</span></label>
+  <label class="corner"><input type="color" data-corner="angry"><span>angry (low valence, high energy)</span></label>
+  <label class="corner"><input type="color" data-corner="happy"><span>happy (high valence, high energy)</span></label>
+</div>
+
+<h2>pulse</h2>
+<div class="card">
+  <div class="row">
+    <span class="label">amplitude</span>
+    <input type="range" id="pulse_scale" min="0" max="3" step="0.05">
+    <span class="value" id="pulse_scale_v">—</span>
+  </div>
+  <div class="row">
+    <span class="label">decay</span>
+    <input type="range" id="decay_fraction" min="0.05" max="0.9" step="0.01">
+    <span class="value" id="decay_fraction_v">—</span>
+  </div>
+</div>
+
+<h2>manual override</h2>
+<div class="card">
+  <div class="row">
+    <button id="manual_toggle">off</button>
+    <input type="color" id="manual_color">
+    <span class="label">brightness</span>
+    <input type="range" id="manual_bright" min="10" max="255" step="1">
+    <span class="value" id="manual_bright_v">—</span>
+  </div>
+  <div class="row"><code>manual wins over music while enabled</code></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function rgbToHex([r, g, b]) {
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+let ws;
+let suppressUpdate = false;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (e) => render(JSON.parse(e.data));
+  ws.onclose = () => setTimeout(connect, 1000);
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function render(s) {
+  suppressUpdate = true;
+  $('track').textContent = s.is_playing
+    ? `${s.track_artist} — ${s.track_name}`
+    : (s.track_name ? '(paused) ' + s.track_artist + ' — ' + s.track_name : '—');
+  $('features').textContent = s.energy || s.valence || s.tempo
+    ? `energy=${s.energy.toFixed(2)}  valence=${s.valence.toFixed(2)}  bpm=${s.tempo.toFixed(0)}`
+    : '—';
+  $('swatch').style.background = rgbToHex(s.current_rgb);
+  $('bulb').textContent = `rgb(${s.current_rgb.join(', ')})  b=${s.current_brightness}`;
+
+  for (const [name, rgb] of Object.entries(s.corners)) {
+    const el = document.querySelector(`[data-corner="${name}"]`);
+    if (el) el.value = rgbToHex(rgb);
+  }
+  $('pulse_scale').value = s.pulse_scale;
+  $('pulse_scale_v').textContent = Number(s.pulse_scale).toFixed(2);
+  $('decay_fraction').value = s.decay_fraction;
+  $('decay_fraction_v').textContent = Number(s.decay_fraction).toFixed(2);
+
+  $('manual_toggle').textContent = s.manual.enabled ? 'on' : 'off';
+  $('manual_toggle').classList.toggle('on', s.manual.enabled);
+  $('manual_color').value = rgbToHex(s.manual.rgb);
+  $('manual_bright').value = s.manual.brightness;
+  $('manual_bright_v').textContent = s.manual.brightness;
+  suppressUpdate = false;
+}
+
+document.querySelectorAll('[data-corner]').forEach(inp => {
+  inp.addEventListener('input', () => {
+    if (suppressUpdate) return;
+    send({ type: 'set_corner', corner: inp.dataset.corner, rgb: hexToRgb(inp.value) });
+  });
+});
+
+$('pulse_scale').addEventListener('input', () => {
+  if (suppressUpdate) return;
+  $('pulse_scale_v').textContent = Number($('pulse_scale').value).toFixed(2);
+  send({ type: 'set_pulse_scale', value: parseFloat($('pulse_scale').value) });
+});
+
+$('decay_fraction').addEventListener('input', () => {
+  if (suppressUpdate) return;
+  $('decay_fraction_v').textContent = Number($('decay_fraction').value).toFixed(2);
+  send({ type: 'set_decay_fraction', value: parseFloat($('decay_fraction').value) });
+});
+
+$('manual_toggle').addEventListener('click', () => {
+  const on = $('manual_toggle').classList.contains('on');
+  send({ type: 'set_manual', manual: { enabled: !on } });
+});
+$('manual_color').addEventListener('input', () => {
+  if (suppressUpdate) return;
+  send({ type: 'set_manual', manual: { rgb: hexToRgb($('manual_color').value) } });
+});
+$('manual_bright').addEventListener('input', () => {
+  if (suppressUpdate) return;
+  $('manual_bright_v').textContent = $('manual_bright').value;
+  send({ type: 'set_manual', manual: { brightness: parseInt($('manual_bright').value) } });
+});
+
+connect();
+</script>
+</body>
+</html>
