@@ -1,0 +1,6 @@
+esp32-archive/.pio/
+esp32-archive/.vscode/
+esp32-archive/data/secrets.json
+esp32-archive/include/secrets.h
+*.env
+.DS_Store
