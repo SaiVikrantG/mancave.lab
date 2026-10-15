@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import time
 
 from wizmood.bulb import Bulb
@@ -8,6 +9,18 @@ log = logging.getLogger("wizmood.beat")
 
 MIN_BPM = 60.0
 MAX_BPM = 180.0
+
+TICK_HZ = 20
+TICK_PERIOD = 1.0 / TICK_HZ
+
+# Fraction of each beat period over which the pulse decays. 0.3 means the
+# decay is ~95% done in the first third of the beat, giving a clear "hit then
+# settle" feel instead of a smooth sine.
+DECAY_FRACTION = 0.3
+
+# Don't push a new setPilot unless the brightness differs from last-sent by
+# at least this much — keeps calm songs quiet on the wire.
+BRIGHTNESS_DEADZONE = 3
 
 
 def _clamp_bpm(bpm: float) -> float:
@@ -30,6 +43,7 @@ class BeatEngine:
         self._enabled = False
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
+        self._last_sent_brightness: int = -1
 
     def start(self) -> None:
         if self._task is None:
@@ -51,6 +65,7 @@ class BeatEngine:
         bpm: float,
         progress_ms: int,
     ) -> None:
+        rgb_changed = rgb != self._rgb
         self._rgb = rgb
         self._bright_high = bright_high
         self._bright_low = max(10, bright_low)
@@ -58,25 +73,27 @@ class BeatEngine:
         self._anchor_song_ms = float(progress_ms)
         self._anchor_wall = time.monotonic()
         self._enabled = self._bpm > 0
+        if rgb_changed:
+            # Force a resend so the color actually changes on track change,
+            # even if the brightness stays similar.
+            self._last_sent_brightness = -1
         self._wake.set()
 
     def disable(self) -> None:
         self._enabled = False
+        self._last_sent_brightness = -1
         self._wake.set()
 
     def _current_song_ms(self) -> float:
         return self._anchor_song_ms + (time.monotonic() - self._anchor_wall) * 1000.0
 
-    async def _sleep_until_next_half_beat(self) -> bool:
-        """Returns True if we're on a down-beat, False if on an up-beat."""
-        half_period_ms = 30000.0 / self._bpm
+    def _envelope(self) -> float:
+        """Returns a 0..1 pulse value: 1 at beat edge, decays toward 0."""
+        beat_period_ms = 60000.0 / self._bpm
         song_ms = self._current_song_ms()
-        halves_elapsed = song_ms / half_period_ms
-        remainder = halves_elapsed - int(halves_elapsed)
-        wait_ms = (1.0 - remainder) * half_period_ms
-        await asyncio.sleep(wait_ms / 1000.0)
-        # The half-beat we just landed on:
-        return (int(halves_elapsed) + 1) % 2 == 0
+        t_since_beat_ms = song_ms % beat_period_ms
+        tau_ms = beat_period_ms * DECAY_FRACTION
+        return math.exp(-t_since_beat_ms / tau_ms)
 
     async def _run(self) -> None:
         while True:
@@ -86,14 +103,17 @@ class BeatEngine:
                 continue
 
             try:
-                on_beat = await self._sleep_until_next_half_beat()
-                brightness = self._bright_high if on_beat else self._bright_low
-                try:
-                    await self._bulb.set(self._rgb, brightness)
-                except Exception as e:
-                    log.warning("bulb set failed: %s", e)
+                env = self._envelope()
+                target = int(self._bright_low + (self._bright_high - self._bright_low) * env)
+                if abs(target - self._last_sent_brightness) >= BRIGHTNESS_DEADZONE:
+                    try:
+                        await self._bulb.set(self._rgb, target)
+                        self._last_sent_brightness = target
+                    except Exception as e:
+                        log.warning("bulb set failed: %s", e)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 log.exception("beat loop error: %s", e)
-                await asyncio.sleep(0.5)
+
+            await asyncio.sleep(TICK_PERIOD)
