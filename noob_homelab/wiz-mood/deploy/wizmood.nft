@@ -1,0 +1,52 @@
+#!/usr/sbin/nft -f
+# Egress firewall for the wizmood LXC.
+#
+# Install:   cp wizmood.nft /etc/nftables.conf && systemctl enable --now nftables
+# Reload:    systemctl reload nftables (or: nft -f /etc/nftables.conf)
+#
+# Allows: 443/TCP anywhere (Spotify + ReccoBeats; hostnames can't be whitelisted
+# at the kernel level, so port is the tightest practical filter), DNS to the
+# LAN gateway, DHCP renewal, and UDP/38899 only to the specific WiZ bulb IP.
+# Drops everything else outbound, so a compromised service can't scan the lab
+# subnet or reach arbitrary home-network devices.
+
+define BULB_IP = 192.168.31.215
+define BULB_PORT = 38899
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        ip protocol icmp accept
+        ip6 nexthdr icmpv6 accept
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority 0; policy drop;
+
+        oif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        ip protocol icmp accept
+        ip6 nexthdr icmpv6 accept
+
+        udp sport 68 udp dport 67 accept
+        udp dport 53 accept
+        tcp dport 53 accept
+
+        tcp dport 443 accept
+
+        ip daddr $BULB_IP udp dport $BULB_PORT accept
+    }
+}
