@@ -25,7 +25,21 @@ async def _poll_loop(
     beat: BeatEngine,
 ) -> None:
     last_id: str | None = None
-    cached_features: AudioFeatures | None = None
+    features_by_id: dict[str, AudioFeatures | None] = {}
+    fetch_tasks: dict[str, asyncio.Task] = {}
+
+    def start_fetch(track_id: str) -> None:
+        if track_id in features_by_id or track_id in fetch_tasks:
+            return
+        async def go():
+            try:
+                feat = await reccobeats.features_for_spotify_track(track_id)
+                features_by_id[track_id] = feat
+                if feat is None:
+                    log.info("no features for %s", track_id)
+            finally:
+                fetch_tasks.pop(track_id, None)
+        fetch_tasks[track_id] = asyncio.create_task(go())
 
     while True:
         np = await spotify.currently_playing()
@@ -40,7 +54,6 @@ async def _poll_loop(
                 except Exception as e:
                     log.warning("bulb off failed: %s", e)
                 last_id = None
-                cached_features = None
         else:
             state.is_playing = True
             state.track_id = np.track_id
@@ -50,21 +63,19 @@ async def _poll_loop(
             if np.track_id != last_id:
                 log.info("now: %s - %s", np.artist, np.name)
                 last_id = np.track_id
-                cached_features = await reccobeats.features_for_spotify_track(np.track_id)
-                if cached_features is None:
-                    log.info("no features; leaving bulb unchanged")
-                else:
-                    state.energy = cached_features.energy
-                    state.valence = cached_features.valence
-                    state.tempo = cached_features.tempo
+                start_fetch(np.track_id)
 
-            if cached_features is not None:
-                mapped = map_features(state, cached_features)
+            feat = features_by_id.get(np.track_id)
+            if feat is not None:
+                state.energy = feat.energy
+                state.valence = feat.valence
+                state.tempo = feat.tempo
+                mapped = map_features(state, feat)
                 beat.update(
                     rgb=mapped.rgb,
                     bright_high=mapped.bright_high,
                     bright_low=mapped.bright_low,
-                    bpm=cached_features.tempo,
+                    bpm=feat.tempo,
                     progress_ms=np.progress_ms,
                 )
 
