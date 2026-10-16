@@ -54,6 +54,15 @@
     <span class="swatch" id="swatch"></span>
     <span class="value" id="bulb">—</span>
   </div>
+  <div class="row"><span class="label">pulse src</span>
+    <span class="value" id="audio_mode">—</span>
+  </div>
+  <div class="row"><span class="label">envelope</span>
+    <div style="flex:1; height:10px; background:#0b0d10; border:1px solid #1f2733; border-radius:4px; overflow:hidden;">
+      <div id="env_bar" style="height:100%; width:0%; background:#4a9eff; transition:width 60ms linear;"></div>
+    </div>
+    <span class="value" id="env_v" style="min-width:40px; text-align:right;">—</span>
+  </div>
 </div>
 
 <h2>palette (corners)</h2>
@@ -124,6 +133,13 @@ function render(s) {
     : '—';
   $('swatch').style.background = rgbToHex(s.current_rgb);
   $('bulb').textContent = `rgb(${s.current_rgb.join(', ')})  b=${s.current_brightness}`;
+
+  const fresh = s.audio && s.audio.fresh;
+  $('audio_mode').textContent = fresh ? 'live tap (Mac)' : 'synthetic (BPM metronome)';
+  $('audio_mode').style.color = fresh ? '#8ad48a' : '#8a8f98';
+  const envVal = s.audio ? s.audio.envelope : 0;
+  $('env_bar').style.width = `${Math.round(envVal * 100)}%`;
+  $('env_v').textContent = envVal.toFixed(2);
 
   for (const [name, rgb] of Object.entries(s.corners)) {
     const el = document.querySelector(`[data-corner="${name}"]`);

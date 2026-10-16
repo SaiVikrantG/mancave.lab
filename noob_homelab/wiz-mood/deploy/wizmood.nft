@@ -28,6 +28,10 @@ table inet filter {
 
         # Dashboard: HTTP + WebSocket on 8080, lab subnet only.
         ip saddr 192.168.50.0/24 tcp dport 8080 accept
+
+        # Audio envelope tap: UDP 38900 from the lab subnet, rate-limited
+        # so a flood can't exhaust CPU parsing packets.
+        ip saddr 192.168.50.0/24 udp dport 38900 limit rate 60/second accept
     }
 
     chain forward {

@@ -3,6 +3,7 @@ import logging
 
 import uvicorn
 
+from wizmood.audio import start_listener as start_audio_listener
 from wizmood.beat import BeatEngine
 from wizmood.bulb import Bulb
 from wizmood.config import load
@@ -83,6 +84,8 @@ async def run() -> None:
     beat = BeatEngine(bulb, state)
     beat.start()
 
+    audio_transport = await start_audio_listener(state)
+
     app = build_app(state)
     uv_config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="warning")
     server = uvicorn.Server(uv_config)
@@ -93,6 +96,7 @@ async def run() -> None:
     try:
         await asyncio.gather(poll_task, server_task)
     finally:
+        audio_transport.close()
         await beat.stop()
         await spotify.close()
         await reccobeats.close()

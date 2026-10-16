@@ -118,7 +118,10 @@ class BeatEngine:
                         pass
                     continue
 
-                env = self._envelope()
+                if self._state.audio_fresh():
+                    env = self._state.audio_envelope
+                else:
+                    env = self._envelope()
                 target = int(self._bright_low + (self._bright_high - self._bright_low) * env)
                 await self._apply(self._rgb, target)
             except asyncio.CancelledError:
