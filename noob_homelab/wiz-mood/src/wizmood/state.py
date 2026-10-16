@@ -40,6 +40,7 @@ class State:
     corner_happy: RGB = (255, 200, 0)
     pulse_scale: float = 1.0
     decay_fraction: float = 0.30
+    bright_floor: int = 20
     # Manual override — when enabled, mapping/pulse are bypassed
     manual: ManualOverride = field(default_factory=ManualOverride)
 
@@ -64,6 +65,7 @@ class State:
             },
             "pulse_scale": self.pulse_scale,
             "decay_fraction": self.decay_fraction,
+            "bright_floor": self.bright_floor,
             "manual": {
                 "enabled": self.manual.enabled,
                 "rgb": list(self.manual.rgb),

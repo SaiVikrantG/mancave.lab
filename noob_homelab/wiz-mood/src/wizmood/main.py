@@ -19,6 +19,7 @@ log = logging.getLogger("wizmood")
 async def _poll_loop(
     cfg,
     state: State,
+    bulb: Bulb,
     spotify: SpotifyClient,
     reccobeats: ReccoBeatsClient,
     beat: BeatEngine,
@@ -32,8 +33,12 @@ async def _poll_loop(
         if np is None or not np.is_playing:
             state.is_playing = False
             if last_id is not None:
-                log.info("paused / nothing playing")
+                log.info("paused / nothing playing; bulb off")
                 beat.disable()
+                try:
+                    await bulb.off()
+                except Exception as e:
+                    log.warning("bulb off failed: %s", e)
                 last_id = None
                 cached_features = None
         else:
@@ -91,7 +96,7 @@ async def run() -> None:
     server = uvicorn.Server(uv_config)
     server_task = asyncio.create_task(server.serve())
 
-    poll_task = asyncio.create_task(_poll_loop(cfg, state, spotify, reccobeats, beat))
+    poll_task = asyncio.create_task(_poll_loop(cfg, state, bulb, spotify, reccobeats, beat))
 
     try:
         await asyncio.gather(poll_task, server_task)

@@ -38,12 +38,14 @@ def map_features(state: State, f: AudioFeatures) -> BulbState:
 
     rgb = _bilinear(state, valence, energy)
 
-    bright_target = int(80 + 175 * energy)
+    # bright_target maps energy linearly from the floor up to 255.
+    floor = max(1, min(254, state.bright_floor))
+    bright_target = int(floor + (255 - floor) * energy)
 
     # pulse_scale lets the dashboard turn the pulse up/down globally.
     pulse_amplitude = int((4 + 106 * (energy ** 2)) * state.pulse_scale)
 
     bright_high = min(255, bright_target + pulse_amplitude // 2)
-    bright_low  = max(10, bright_target - pulse_amplitude // 2)
+    bright_low  = max(1, bright_target - pulse_amplitude // 2)
 
     return BulbState(rgb=rgb, bright_high=bright_high, bright_low=bright_low)

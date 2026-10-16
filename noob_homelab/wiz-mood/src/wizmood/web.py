@@ -72,6 +72,8 @@ def _handle(state: State, msg: dict) -> None:
         state.pulse_scale = max(0.0, min(3.0, float(msg.get("value", 1.0))))
     elif t == "set_decay_fraction":
         state.decay_fraction = max(0.05, min(0.9, float(msg.get("value", 0.3))))
+    elif t == "set_bright_floor":
+        state.bright_floor = _clamp_int(msg.get("value", 20), 1, 200)
     elif t == "set_manual":
         m = msg.get("manual", {})
         state.manual.enabled = bool(m.get("enabled", False))

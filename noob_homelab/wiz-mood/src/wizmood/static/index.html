@@ -85,6 +85,11 @@
     <input type="range" id="decay_fraction" min="0.05" max="0.9" step="0.01">
     <span class="value" id="decay_fraction_v">—</span>
   </div>
+  <div class="row">
+    <span class="label">floor</span>
+    <input type="range" id="bright_floor" min="1" max="200" step="1">
+    <span class="value" id="bright_floor_v">—</span>
+  </div>
 </div>
 
 <h2>manual override</h2>
@@ -149,6 +154,8 @@ function render(s) {
   $('pulse_scale_v').textContent = Number(s.pulse_scale).toFixed(2);
   $('decay_fraction').value = s.decay_fraction;
   $('decay_fraction_v').textContent = Number(s.decay_fraction).toFixed(2);
+  $('bright_floor').value = s.bright_floor;
+  $('bright_floor_v').textContent = s.bright_floor;
 
   $('manual_toggle').textContent = s.manual.enabled ? 'on' : 'off';
   $('manual_toggle').classList.toggle('on', s.manual.enabled);
@@ -175,6 +182,12 @@ $('decay_fraction').addEventListener('input', () => {
   if (suppressUpdate) return;
   $('decay_fraction_v').textContent = Number($('decay_fraction').value).toFixed(2);
   send({ type: 'set_decay_fraction', value: parseFloat($('decay_fraction').value) });
+});
+
+$('bright_floor').addEventListener('input', () => {
+  if (suppressUpdate) return;
+  $('bright_floor_v').textContent = $('bright_floor').value;
+  send({ type: 'set_bright_floor', value: parseInt($('bright_floor').value) });
 });
 
 $('manual_toggle').addEventListener('click', () => {

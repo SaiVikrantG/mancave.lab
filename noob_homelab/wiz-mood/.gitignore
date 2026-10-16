@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*-venv/
+wiz-mood-venv/
 *.egg-info/
 config.toml
 .env
