@@ -10,7 +10,7 @@ Living diagram of the homelab's physical and logical wiring. Update whenever the
 
 ## Current: double NAT with isolated lab subnet
 
-*As of 2026-10-14. HP, VPS and phone meet on the tailnet; inbound from the internet is not relied on (CGNAT upstream). The install-day MacBook Internet Sharing path is retired — see runbooks 01 and 04 for how we got here.*
+*As of 2026-10-18. HP, VPS and phone meet on the tailnet; inbound from the internet is not relied on (CGNAT upstream). The install-day MacBook Internet Sharing path is retired — see runbooks 01 and 04 for how we got here. The `wizmood` LXC and its cross-subnet reach to the WiZ bulb landed 2026-10-18, see runbook 05.*
 
 ```mermaid
 graph LR
@@ -18,20 +18,29 @@ graph LR
     JIO[Jio AirFiber<br/>192.168.31.0/24<br/>home LAN, CGNAT]
     TPL[TP-Link WR841N v14<br/>WAN: DHCP from AirFiber<br/>LAN: 192.168.50.0/24<br/>router mode + DHCP<br/>Wi-Fi SSID: mancave-lab]
     HP[HP Pavilion<br/>Proxmox VE 9.2<br/>pve.mancave.lab<br/>vmbr0: 192.168.50.x<br/>reservation at .10 planned]
-    VMS[VMs + LXCs<br/>LXC 101: ts Tailscale ✓<br/>Pi-hole, Uptime Kuma,<br/>exporters, Docker host — to come]
+    TSLXC[LXC 101: ts<br/>Tailscale ✓]
+    WIZLXC[LXC 102: wizmood<br/>Spotify → WiZ bulb<br/>nftables egress firewall<br/>dashboard :8080<br/>audio-tap UDP :38900]
+    FUTURE[Future LXCs:<br/>Pi-hole, Uptime Kuma,<br/>exporters, Docker host]
+    BULB[Philips WiZ bulb<br/>192.168.31.215<br/>UDP :38899]
     VPS[VPS<br/>Prometheus + Grafana<br/>owner's service]
     PHONE[Phone]
     MAC[MacBook<br/>Wi-Fi: 192.168.31.x AirFiber<br/>Ethernet: 192.168.50.x TP-Link<br/>admin workstation]
-    HOME[Home devices<br/>on 192.168.31.0/24]
+    HOME[Other home devices<br/>on 192.168.31.0/24]
 
     INET --- JIO
     JIO --- HOME
+    JIO --- BULB
     JIO -- Wi-Fi --- MAC
     JIO -- AirFiber LAN → TP-Link WAN --- TPL
     TPL -- Ethernet --- HP
     TPL -. backup Wi-Fi .- MAC
-    HP --- VMS
+    HP --- TSLXC
+    HP --- WIZLXC
+    HP --- FUTURE
     INET --- VPS
+
+    WIZLXC -. unicast UDP via NAT .- BULB
+    MAC -. audio envelope UDP .- WIZLXC
 
     HP -. tailnet .- VPS
     HP -. tailnet .- PHONE
@@ -51,6 +60,8 @@ graph LR
 - TP-Link's own 2.4 GHz Wi-Fi (SSID `mancave-lab`) is enabled as a backup path to reach `192.168.50.x` from the Mac or phone when no cable is at hand. Not fast (10/100 and 2.4 GHz only), but useful when the dongle isn't plugged in.
 - Put the AirFiber, TP-Link and HP on the same inverter/UPS circuit — otherwise a power cut takes connectivity down with the host.
 - Double NAT itself isn't a problem for inbound: CGNAT upstream already blocks that regardless of local NAT layering. Cat 6 is sufficient for both runs (TP-Link's 10/100 ports are the actual ceiling).
+- **Cross-subnet unicast works, broadcast doesn't.** The `wizmood` LXC (192.168.50.x) reaches the WiZ bulb (192.168.31.215) by unicast UDP on port 38899; the TP-Link NATs the packets out its WAN interface and the bulb replies to the NAT'd mapping. WiZ broadcast discovery to `255.255.255.255` dies at the TP-Link, which is why the bulb's IP is hardcoded in the service config. The home side cannot initiate anything *back* into the lab subnet — same NAT, opposite direction — which is the de facto IoT isolation. Lab → home is wide open, though; a compromised LXC can scan 192.168.31.0/24 freely, hence the `wizmood` LXC's nftables egress whitelist.
+- **Audio tap over the lab subnet.** When active, the Mac runs a Python script that reads a BlackHole loopback device and ships a 20 Hz RMS envelope to `wizmood` on UDP 38900. Nothing crosses subnets for this path — Mac must be plugged into the TP-Link via its Ethernet dongle (lab-side) for packets to reach the LXC. 32 bytes/pkt × 20/s ≈ 640 B/s. Rate-limited at the LXC firewall to 60 pkt/s per source.
 
 ## Tailnet overlay (logical)
 
@@ -100,6 +111,7 @@ graph TB
 
 | Date | Change |
 | --- | --- |
+| 2026-10-18 | `wizmood` LXC (102) added to current diagram alongside the existing `ts` LXC; previously-unnamed VMs/LXCs block split into three nodes — `ts`, `wizmood`, and "Future LXCs" placeholder. New BULB node on the home subnet (192.168.31.215) with a dashed "unicast UDP via NAT" edge from `wizmood`. New dashed edge from Mac to `wizmood` for the audio-envelope UDP feed. Notes section adds entries explaining cross-subnet unicast vs. broadcast behaviour and the audio-tap packet shape. |
 | 2026-10-14 | HP host joined to the tailnet directly — second tailnet node on the box alongside the `ts` LXC. Tailnet overlay updated: HP node promoted from "not yet joined" (dashed/greyed) to a first-class peer with `done` styling; `same physical box` edge kept but reframed as informational rather than a dependency. "Still open: Tailscale on host" removed from the open-items list. Subnet-router question updated to list both candidates (`ts` LXC or HP host) rather than defaulting to the LXC. New gotcha added for `ip_forward` sysctl. |
 | 2026-10-14 | TP-Link cutover complete: "Planned" layout promoted to "Current" with as-of 2026-10-14. "Install-day setup via MacBook Internet Sharing" section removed — captured in runbook_01 and runbook_04. HP now on 192.168.50.x via TP-Link DHCP (reservation at .10 planned). `ts` LXC re-IP'd onto 192.168.50.x via DHCP after its hardcoded 192.168.2.50 broke on the subnet change; Tailscale session re-authed after the outage. Mac added to the current diagram as a dual-homed admin workstation (AirFiber Wi-Fi + TP-Link Ethernet). TP-Link backup Wi-Fi path (SSID `mancave-lab`) added. |
 | 2026-10-13 | Tailnet overlay updated: Tailscale LXC (vmid 101) added and marked resolved/verified, replacing the old "planned, not yet joined" placeholder for the HP. Install-day diagram updated to show the LXC and flag the MacBook-dependency limitation explicitly. Planned double-NAT diagram annotated: TP-Link WAN port confirmed, re-IP need for both host and LXC noted, double-NAT/CGNAT and Cat 6 clarified as non-issues. New "still open" note added for the subnet-router question (separate from the now-resolved "where does Tailscale run" question). |

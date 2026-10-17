@@ -1,6 +1,6 @@
 # mancave.lab: Project Context
 
-Oct 14, 2026 · @Vikrant
+Oct 18, 2026 · @Vikrant
 
 ## Overview
 
@@ -23,6 +23,7 @@ Four pieces of hardware are in play, and RAM and storage on the laptop cannot be
 | Device | Role | Specs | Notes |
 | --- | --- | --- | --- |
 | HP Pavilion 15-cs1052tx (5JR96PA) | Lab host, Proxmox VE 9.2 (kernel 7.0.14-23-pve) | Core i7-8565U (4 cores, 8 threads), 8 GB DDR4, 2 TB HDD, NVIDIA GeForce GPU | On lab subnet 192.168.50.x via TP-Link (DHCP; reservation at .10 planned, MAC `c8:d9:d2:93:53:93`). Joined to the tailnet directly as of 2026-10-14 (plain `tailscale up`, no SSH, no exit node, no advertised routes yet). Ethernet confirmed (Realtek r8169). GPU model still unconfirmed (likely MX150). Internal laptop battery dead — runs on AC only. CMOS coin cell (CR2032) dead — BIOS settings and clock reset on full power loss. AC backed by a home inverter which stands in as UPS. |
+| Philips WiZ bulb (ESP25_SHRGB_01, firmware 1.38 Pro) | IoT light driven by the `wizmood` LXC | RGBCW E27, Wi-Fi only | On the **home** subnet 192.168.31.0/24 (not the lab subnet), DHCP from AirFiber. Local UDP control on port 38899 requires WiZ app → Settings → Security → Allow Local → "Allow all controls" (newer firmwares default to "Only verified controls" which rejects unsigned writes with a misleading `-32602 Invalid params`). Cross-subnet reachable from the lab via unicast through TP-Link NAT; broadcast discovery does not cross. |
 | TP-Link TL-WR841N v14 | Lab router behind the AirFiber | MT7628NN, 32 MB RAM, 4 MB flash, 2.4 GHz Wi-Fi only, five 10/100 ports | In router mode: WAN DHCP from AirFiber (192.168.31.x), LAN 192.168.50.0/24 with DHCP enabled. 2.4 GHz Wi-Fi available as backup admin access (separate SSID). No USB port. OpenWrt not practical on 4/32 hardware, so use stock firmware. |
 | Jio AirFiber box | Home internet gateway | 5G wireless, Wi-Fi 6, multiple LAN ports. Home LAN is on 192.168.31.0/24 (gateway likely 192.168.31.1). | LAN port count, speed and USB unconfirmed. Firmware is ISP-locked. Likely behind CGNAT. Bridge mode reportedly locked down — double NAT via TP-Link is the working approach. |
 | VPS | Public host, monitoring | Provider and specs not recorded | Runs the owner's own service plus Prometheus and Grafana (being set up). |
@@ -65,6 +66,7 @@ Proxmox is installed, the lab subnet is live behind the TP-Link, the first LXC (
 - [x] HP wired directly to the TP-Link, Mac no longer in the path
 - [x] Lab router (TP-Link) placed behind the AirFiber
 - [x] Tailscale on the Proxmox host itself (plain `tailscale up`; no SSH, no exit node, no advertised routes — can enable later)
+- [x] Second LXC: `wizmood` (container 102, DHCP on lab subnet) — Spotify-reactive WiZ bulb service, egress-firewalled via nftables; see runbook_05
 - [ ] Prometheus and Grafana on the VPS, monitoring the VPS and the hosted service with alerts (in progress)
 - [ ] Node_exporter + cAdvisor on the lab, scraped by VPS Prometheus
 - [ ] Subnet router for 192.168.50.0/24 on the tailnet (either the `ts` LXC or the host — decide when Pi-hole/Uptime Kuma land)
@@ -210,6 +212,7 @@ Add one row per notable change or decision, newest first, so later chats can see
 
 | Date | Item | Detail |
 | --- | --- | --- |
+| 2026-10-18 | `wizmood` LXC (container 102) up | Second LXC on the host — Spotify-reactive mood-lighting service against a Philips WiZ bulb. Pivoted from an ESP32 attempt kept at `noob_homelab/esp32-archive/`. Unprivileged, Debian 13, DHCP on lab subnet (currently .104). Egress firewall via nftables: 443/TCP + DNS + DHCP + UDP/38899 to the bulb IP only, plus 8080/TCP + 38900/UDP inbound from the lab subnet for the tuning dashboard and audio tap. Service pipeline: Spotify `currently-playing` (via refresh-token OAuth) → ReccoBeats features cached in memory → 2D-palette color mapping → brightness pulse envelope. Pulse envelope is either a synthetic exp-decay from the BPM metronome, or a real-time RMS envelope sent 20 Hz by a Mac-side tap off BlackHole, whichever is fresher. Dashboard at :8080 live-tunes palette corners, pulse amplitude, decay, floor, and manual override. systemd + non-root service user still deferred — service runs under tmux as container-root during the active tuning phase. See runbook_05. |
 | 2026-10-14 | HP host joined to the tailnet | Plain `tailscale up` on the Proxmox host — no `--ssh`, no `--advertise-exit-node`, no `--advertise-routes`. Host now appears on the tailnet as its own peer alongside the `ts` LXC. Second independent path to the box: if the LXC dies, host is still reachable via tailnet; if the host crashes, the LXC... goes with it. "Single point of failure (remote access)" risk retired. Subnet router question now has two candidate nodes (LXC or host). Topology doc updated to match. |
 | 2026-10-14 | TP-Link cutover complete | TP-Link WR841N placed behind AirFiber (router mode, LAN 192.168.50.0/24, WAN DHCP from AirFiber). HP migrated from MacBook Internet Sharing (192.168.2.2 static) to TP-Link DHCP on 192.168.50.x. `ts` LXC had hardcoded 192.168.2.50 static — switched to DHCP, re-authed Tailscale after session expired. MacBook Internet Sharing retired. See runbook_04. |
 | 2026-10-13 | First LXC + Tailscale | Created Debian LXC (`ts`, container 101) on Proxmox with tun device + cgroup passthrough. Installed Tailscale via signed apt repo (not curl-pipe). `tailscale up` + browser auth. LXC joined tailnet, verified by ping from Mac/VPS. See runbook_03. |
