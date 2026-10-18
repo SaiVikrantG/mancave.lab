@@ -1,0 +1,14 @@
+# Local DNS records for mancave.lab, served by the Pi-hole LXC (vmid 103, 192.168.50.5).
+# One record per line: "<ip> <hostname>". Blank lines and lines starting with # are ignored.
+#
+# Source of truth: this file. Pi-hole v6 reads from /etc/pihole/pihole.toml's dns.hosts array,
+# not /etc/pihole/custom.list. See README.md for the one-liner that pushes this file into
+# dns.hosts via pihole-FTL --config.
+#
+# Edits made in the admin UI (Settings → Local DNS Records) write to pihole.toml directly and
+# will be overwritten the next time this file is deployed.
+
+192.168.50.10   pve.mancave.lab
+192.168.50.5    pihole.mancave.lab
+192.168.50.102  ts.mancave.lab
+192.168.50.104  wizmood.mancave.lab
