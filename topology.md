@@ -39,7 +39,7 @@ graph LR
     HP --- WIZLXC
     HP --- PIHOLE
     HP --- FUTURE
-    TPL -. DHCP: DNS=192.168.50.5 .- PIHOLE
+    TPL -. DHCP hands out Pi-hole as DNS .- PIHOLE
     INET --- VPS
 
     WIZLXC -. unicast UDP via NAT .- BULB
