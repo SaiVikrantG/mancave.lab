@@ -10,7 +10,7 @@ mancave.lab is a homelab project: turn an old HP laptop into a low-power playgro
 
 - Run the HP laptop as a Type 1 hypervisor (Proxmox preferred) and manage it with code (Terraform/OpenTofu, Ansible, cloud-init, Git)
 - Self-host small services (Pi-hole, Uptime Kuma, Jellyfin and similar)
-- Extend the existing VPS monitoring stack (Prometheus, Grafana) to cover the lab
+- Stand up a monitoring stack (Prometheus + Grafana) on the VPS and extend it to cover the lab
 - Build Go tools for the lab (exporters, a lab CLI, tsnet services)
 - Possibly provision disposable dev VMs for outside users
 
@@ -26,7 +26,7 @@ Four pieces of hardware are in play, and RAM and storage on the laptop cannot be
 | Philips WiZ bulb (ESP25_SHRGB_01, firmware 1.38 Pro) | IoT light driven by the `wizmood` LXC | RGBCW E27, Wi-Fi only | On the **home** subnet 192.168.31.0/24 (not the lab subnet), DHCP from AirFiber. Local UDP control on port 38899 requires WiZ app → Settings → Security → Allow Local → "Allow all controls" (newer firmwares default to "Only verified controls" which rejects unsigned writes with a misleading `-32602 Invalid params`). Cross-subnet reachable from the lab via unicast through TP-Link NAT; broadcast discovery does not cross. |
 | TP-Link TL-WR841N v14 | Lab router behind the AirFiber | MT7628NN, 32 MB RAM, 4 MB flash, 2.4 GHz Wi-Fi only, five 10/100 ports | In router mode: WAN DHCP from AirFiber (192.168.31.x), LAN 192.168.50.0/24 with DHCP enabled. 2.4 GHz Wi-Fi available as backup admin access (separate SSID). No USB port. OpenWrt not practical on 4/32 hardware, so use stock firmware. |
 | Jio AirFiber box | Home internet gateway | 5G wireless, Wi-Fi 6, multiple LAN ports. Home LAN is on 192.168.31.0/24 (gateway likely 192.168.31.1). | LAN port count, speed and USB unconfirmed. Firmware is ISP-locked. Likely behind CGNAT. Bridge mode reportedly locked down — double NAT via TP-Link is the working approach. |
-| VPS | Public host, monitoring | Provider and specs not recorded | Runs the owner's own service plus Prometheus and Grafana (being set up). |
+| VPS | Public host | Provider and specs not recorded | Runs the owner's own service. Planned home for Prometheus + Grafana (not yet installed as of 2026-10-21). |
 | MacBook (owner's) | Admin workstation | Mac on AirFiber Wi-Fi for internet; wires into TP-Link via USB 10/100 Ethernet dongle (en5) when 192.168.50.x admin access is needed | Previously used for Internet Sharing to bootstrap the HP (runbook 01). Retired from that role on 2026-10-14 after TP-Link cutover (runbook 04). |
 
 The owner also has a phone on the tailnet.
@@ -68,7 +68,7 @@ Proxmox is installed, the lab subnet is live behind the TP-Link, the first LXC (
 - [x] Tailscale on the Proxmox host itself (plain `tailscale up`; no SSH, no exit node, no advertised routes — can enable later)
 - [x] Second LXC: `wizmood` (container 102, DHCP on lab subnet) — Spotify-reactive WiZ bulb service, egress-firewalled via nftables; see runbook_05
 - [x] Third LXC: `pihole` (container 103, reserved at 192.168.50.5) — serves DNS for the lab subnet via TP-Link DHCP; local records for `pve.mancave.lab`/`pihole.mancave.lab`/`ts.mancave.lab`/`wizmood.mancave.lab`, upstream Cloudflare, StevenBlack unified blocklist; see runbook_06. HP reservation at .10 also finalized in the same session.
-- [ ] Prometheus and Grafana on the VPS, monitoring the VPS and the hosted service with alerts (in progress)
+- [ ] Prometheus and Grafana on the VPS, monitoring the VPS and the hosted service with alerts (not yet started — originally noted as "in progress" but confirmed 2026-10-21 that nothing's actually installed)
 - [ ] Node_exporter + cAdvisor on the lab, scraped by VPS Prometheus
 - [ ] Subnet router for 192.168.50.0/24 on the tailnet (either the `ts` LXC or the host — decide when Pi-hole/Uptime Kuma land)
 - [ ] UPS or other power-cut plan (inverter is current stopgap)
@@ -126,7 +126,7 @@ Start with small LXC services, wire them into monitoring, then automate, then go
 
 ## Go project ideas
 
-The suggested first Go project is a Prometheus exporter for something in the lab, because it is small, fits the existing monitoring stack and touches Go, Grafana, the tailnet and Git.
+The suggested first Go project is a Prometheus exporter for something in the lab, because it is small, fits the planned monitoring stack and touches Go, Grafana, the tailnet and Git.
 
 - **Monitoring:** custom Prometheus exporter (`client_golang`) for Proxmox VM status, Pi-hole per-device stats or the VPS service; an endpoint health checker; an Alertmanager webhook forwarder (Telegram, ntfy or Discord)
 - **Tooling:** a `lab` CLI with `cobra` wrapping the Proxmox API, Terraform and Ansible; a backup orchestrator that runs and verifies restic; a small Git-pull deploy agent
