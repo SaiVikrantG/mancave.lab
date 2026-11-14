@@ -1,0 +1,76 @@
+# VPS observability stack — Prometheus + Grafana + Alertmanager.
+# Deployed next to chckpoint. Joins `deploy_default` (external) so Prom can
+# scrape chckpoint containers by name once /metrics is exposed on the chckpoint side.
+
+networks:
+  observability_net:
+    driver: bridge
+  deploy_default:
+    external: true
+
+volumes:
+  prom-tsdb:
+  grafana-data:
+  am-data:
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    container_name: prometheus
+    restart: unless-stopped
+    user: "65534:65534"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      - prom-tsdb:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=120d
+      - --storage.tsdb.retention.size=25GB
+      - --web.enable-lifecycle
+      - --web.listen-address=:9090
+    ports:
+      - "100.113.225.49:9090:9090"
+    networks:
+      - observability_net
+      - deploy_default
+
+
+  grafana:
+    image: grafana/grafana-oss:13.3.1
+    container_name: grafana
+    restart: unless-stopped
+    user: "472:472"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    ports:
+      - "100.113.225.49:3000:3000"
+    networks:
+      - observability_net
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.35.0
+    container_name: alertmanager
+    restart: unless-stopped
+    user: "65534:65534"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - am-data:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    ports:
+      - "100.113.225.49:9093:9093"
+    networks:
+      - observability_net
