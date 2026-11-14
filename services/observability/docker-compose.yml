@@ -38,7 +38,7 @@ services:
 
 
   grafana:
-    image: grafana/grafana-oss:13.3.1
+    image: grafana/grafana-oss:13.0.2
     container_name: grafana
     restart: unless-stopped
     user: "472:472"
