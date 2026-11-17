@@ -15,6 +15,57 @@ rule_files:
   - /etc/prometheus/alerts/*.yml
 
 scrape_configs:
+  # Prom scrapes itself — baseline sanity target.
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
+
+  # Alertmanager self-scrape (operational metric: alerts received/fired).
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['alertmanager:9093']
+
+  # Grafana self-scrape (Grafana exposes its own internal metrics).
+  - job_name: grafana
+    static_configs:
+      - targets: ['grafana:3000']
+
+  # Lab hosts via subnet router on ts.
+  # IPs are reserved on TP-Link EXCEPT ts (currently on DHCP lease .102 —
+  # will become hostname-based once we land Tier 2 service discovery via
+  # Pi-hole-as-DHCP, see context.md Open questions).
+  - job_name: node-lab
+    static_configs:
+      - targets:
+          - '192.168.50.10:9100'    # pve (HP host)
+          - '192.168.50.5:9100'     # pihole LXC
+          - '192.168.50.102:9100'   # ts LXC — DHCP lease, update after Tier 2
+        labels:
+          environment: lab
+
+  # VPS host metrics — node_exporter container on the shared observability_net.
+  - job_name: node-vps
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          environment: vps
+
+  # Placeholder: chckpoint Go backend /metrics.
+  # Deliberately "down" until the chckpoint repo exposes promhttp.Handler()
+  # on the tailnet-bound listener. backend is the container name on deploy_default.
+  - job_name: chckpoint-backend
+    static_configs:
+      - targets: ['backend:8080']   # port placeholder; adjust when exposed
+        labels:
+          environment: vps
+          service: chckpoint
+
+  # Placeholder: Caddy admin API /metrics endpoint.
+  # Deliberately "down" until Caddyfile enables metrics on its admin listener.
+  # Caddy's admin port is conventionally 2019.
+  - job_name: caddy
+    static_configs:
+      - targets: ['caddy:2019']     # container name on deploy_default
+        labels:
+          environment: vps
+          service: caddy
