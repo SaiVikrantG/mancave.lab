@@ -35,10 +35,10 @@ A monitoring adventure in 3 acts, 9 quests, and 1 real boss fight (a self-induce
 | Act | # | Quest | Done |
 |---|---|---|---|
 | I | 1 | Open the Gate (subnet router on `ts`) | [x] |
-| I | 2 | Raise the Watchtower (Prom + Graf + AM compose stack on VPS) | [ ] |
-| I | 3 | Plant the Sensors (node_exporter × 5) | [ ] |
-| I | 4 | Wire the Nerves (scrape config + placeholder jobs) | [ ] |
-| I | ⚔️ | **Mini-boss:** every target green on Prom's `/targets` page | [ ] |
+| I | 2 | Raise the Watchtower (Prom + Graf + AM compose stack on VPS) | [x] |
+| I | 3 | Plant the Sensors (node_exporter × 4; wizmood skipped) | [x] |
+| I | 4 | Wire the Nerves (scrape config + placeholder jobs) | [x] |
+| I | ⚔️ | **Mini-boss:** every target green on Prom's `/targets` page | [x] |
 | II | 5 | Paint the Walls (community dashboards 1860, Caddy, Go) | [ ] |
 | II | 6 | Watch Outward (blackbox_exporter — first lab-watches-VPS link) | [ ] |
 | II | 7 | Count the Queries (`eko/pihole-exporter`) | [ ] |
@@ -117,7 +117,7 @@ From the HP host (sanity — advertising shouldn't touch local routing):
 
 **Boss mechanic 2 — Grafana first-login dance.** Default creds are `admin`/`admin`. Grafana forces a password change on first UI login. If you miss that step and the container restarts mid-way, you may need to reset via `grafana-cli admin reset-admin-password <newpass>` inside the container. Set the password immediately after first login.
 
-**Boss mechanic 3 — Prom config reload.** You don't need to restart the container to pick up `prometheus.yml` changes. `docker exec prometheus kill -HUP 1` sends SIGHUP; Prom reloads config in-place. Full restart is only needed for flag changes (like `--storage.tsdb.retention.time=...`). Alertmanager same trick: `SIGHUP` for config reload.
+**Boss mechanic 3 — Prom config reload (updated 2026-11-17).** **DO NOT rely on `docker exec prometheus kill -HUP 1` after a `git pull`.** Reason: bind-mounted single files use inode-level binding. When `git pull` (or any editor's atomic-replace save) rewrites `prometheus.yml`, the file's **inode changes** — the host path points at a new inode while the container's bind mount still points at the orphaned old one. SIGHUP then reloads the old content silently. Hashes between host and container diverge and `/targets` shows stale config. **Fix:** `cd services/observability && docker compose restart prometheus` after `git pull`. Same recipe for Alertmanager after AM config changes. Grafana already requires a restart for provisioning changes. One uniform "restart after pull" rule for all three. SIGHUP still works if you edit the file *in place* preserving the inode (e.g. `cat new > existing` or `vim` with `:set backupcopy=yes`), but git pull doesn't, so assume restart.
 
 **Boss mechanic 4 — shared docker network with chckpoint.** For Prom to scrape chckpoint by container name later (`checkpoint:8080/metrics`), both stacks must be on the same docker network. Either declare the network as `external: true` in the observability compose file (if chckpoint created it) or add chckpoint to a network created by observability. Pick one; document which.
 
@@ -141,10 +141,109 @@ From the HP host (sanity — advertising shouldn't touch local routing):
 - Alertmanager without a route = silently drops alerts. Our skeleton uses a null receiver, which logs-but-discards — good for Quest 2, replaced in Quest 8.
 - Prom's `--storage.tsdb.retention.size=25GB` is a secondary cap; `--retention.time=120d` is the primary. Whichever hits first wins. We set both as defense.
 - `docker compose` (v2, no hyphen) vs `docker-compose` (v1, hyphenated) — use v2 on anything modern. Both work if installed; the configs are identical.
+- **Don't guess image tags.** Plausible-looking versions (`grafana/grafana-oss:13.3.1` when the real latest is `13.0.2`) will cascade-fail the whole stack when one pull errors. Verify against `https://hub.docker.com/v2/repositories/<repo>/tags/?page_size=100&ordering=last_updated` — three curl calls in a loop with `jq` filtering to semver tags is faster than a browser visit.
+- **Bind-mounted single files + `git pull` = inode trap.** When git atomically renames a file into place, bind mounts bound to the old inode don't follow. The container keeps seeing stale content; SIGHUP then "reloads" the old content. Debug: `md5sum` the file on host vs `docker exec <ctr> md5sum <path>` — mismatch is the signature. Fix: `docker compose restart <service>` after every config pull. Only `cat > file` / in-place edits preserve the inode. Alternative: bind-mount the directory (not the file) — but that can shadow image-shipped defaults; audit before switching.
+- **`newgrp <group>`** refreshes group credentials in-place after `usermod -aG <group> <user>`, so the current shell sees the new membership without a logout/login. Spawns a subshell with that group as the primary; `exit` returns to the original shell.
+- **Docker group = root-equivalent** via `/var/run/docker.sock`. Any member can mount `/` into a container and escape. Running compose as `vikrant` instead of `root` is a hygiene win (cleaner audit trail, SSH deploy keys stay in `/home/vikrant/.ssh`), not a security win.
+- **Sparse-checkout in cone mode** is the clean way to put just one service dir on a VPS. `git sparse-checkout init --cone` + `set services/observability` + `checkout main`. `git pull` only touches the checked-out paths afterward.
 
 ### 🎯 Quest 3 — Plant the Sensors (+80 XP)
 
-*To be fleshed out.* node_exporter on HP, ts, wizmood, pihole, VPS. Bind `:9100`. nftables source-restrict to the VPS's tailnet IP (and HP's own interfaces where it's local).
+**Objective:** install `node_exporter` on all five hosts so each exposes host-level metrics (CPU, RAM, disk, network, load, filesystem) on `:9100`. VPS gets it as a docker container alongside the observability stack; lab hosts get it as a systemd binary. Verification per host is `curl :9100/metrics` from the VPS or the Mac over the tailnet — scrape config wiring deferred to Quest 4.
+
+**Per-host approach:**
+
+| Host | Deployment | Firewall step |
+|---|---|---|
+| **VPS** | docker container on `observability_net`, `pid: host` + mounted `/proc`, `/sys`, `/` read-only | none — docker DNS + tailnet-IP bind |
+| **HP (`pve`)** | systemd + binary at `/usr/local/bin/node_exporter`, dedicated `node_exporter` system user | skip — Proxmox firewall layer complicates; trust LAN boundary |
+| **ts** | systemd + binary, same pattern as HP | skip — bare LXC, no existing firewall |
+| **pihole** | systemd + binary | ✅ amend `/etc/nftables.conf`: add `9100` to the existing `dport { 22, 53, 80 }` set, `systemctl restart nftables` |
+| **wizmood** | ⛔ **skipped** | Host-level metrics tell you little about a Spotify-reactive bulb service. Covered in Quest 6 by a blackbox probe against `:8080` (the dashboard — proves "service is responding"). Later, instrument wizmood itself for Spotify API cache stats / audio-tap packet rate / etc. — same pattern as chckpoint's deferred `/metrics` exposure. |
+
+**Five moves (one per host), in order of difficulty:**
+
+1. **VPS** — add `node-exporter:v1.12.1` service to `services/observability/docker-compose.yml`, commit, pull on VPS, `docker compose up -d`.
+2. **HP + ts** (shared systemd pattern) — download binary, SHA256-verify, install to `/usr/local/bin/`, create unprivileged `node_exporter` user, drop systemd unit, enable.
+3. **pihole** — same systemd pattern + amend nftables.
+4. **wizmood** — same systemd pattern + amend nftables.
+5. **Verify each target** — `curl -sS http://<host-ip>:9100/metrics | head -5` from Mac returns Prom-format output. All five green = Move 5 done.
+
+**Install recipe for systemd hosts (HP, ts, pihole, wizmood):**
+
+```bash
+NE_VERSION=1.12.1
+cd /tmp
+
+# Download tarball + checksums together
+curl -sSL -O "https://github.com/prometheus/node_exporter/releases/download/v${NE_VERSION}/node_exporter-${NE_VERSION}.linux-amd64.tar.gz"
+curl -sSL -O "https://github.com/prometheus/node_exporter/releases/download/v${NE_VERSION}/sha256sums.txt"
+
+# Verify BEFORE extracting — do not proceed if this fails
+sha256sum -c sha256sums.txt --ignore-missing
+# Expected: node_exporter-X.Y.Z.linux-amd64.tar.gz: OK
+
+tar xzf node_exporter-${NE_VERSION}.linux-amd64.tar.gz
+sudo install -o root -g root -m 0755 node_exporter-${NE_VERSION}.linux-amd64/node_exporter /usr/local/bin/node_exporter
+rm -rf /tmp/node_exporter-${NE_VERSION}.linux-amd64* /tmp/sha256sums.txt
+
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin node_exporter
+```
+
+Then the systemd unit at `/etc/systemd/system/node_exporter.service`:
+
+```ini
+[Unit]
+Description=Prometheus node_exporter
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=node_exporter
+Group=node_exporter
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=:9100
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now node_exporter
+sudo systemctl status node_exporter --no-pager -l | head -20
+```
+
+**Boss mechanic 1 — don't skip the SHA256 check.** `curl` over HTTPS verifies transport, not content. A compromised GitHub release or CDN mirror would still serve a plausible-looking tarball. Download the `sha256sums.txt` from the same release, verify with `sha256sum -c --ignore-missing` **before** extracting or installing. Don't delete the tarball until verification passes. For stricter paranoia levels, use Prometheus's GPG-signed releases — overkill for a homelab but documented in Prometheus's release notes.
+
+**Boss mechanic 2 — the `node_exporter` user has no home and no shell.** `--no-create-home --shell /usr/sbin/nologin` means the service user can never interactively log in, has no writable home dir to persist tooling. Minimal attack surface. If the service is compromised, there's no profile to pivot through.
+
+**Boss mechanic 3 — systemd hardening directives do real work.** `NoNewPrivileges` + `ProtectSystem=strict` + `ProtectHome` + the rest is ~10 extra lines in the unit file that cheaply lock the process to read-only `/`, invisible `/home` and `/root`, no device nodes, no kernel-tunable writes. node_exporter needs none of these so they're free wins.
+
+**Boss mechanic 4 — Prom scrape source IP on lab LXCs.** Scrapes from VPS to `192.168.50.<pihole|wizmood>` arrive via the subnet route from `ts`, so the source IP seen by the target's nftables is `192.168.50.<ts's lease>`, NOT the VPS's tailnet IP. Allow rule must match the lab subnet (`192.168.50.0/24`), not the VPS's `100.113.225.49`.
+
+**Achievement 🏆 "Eyes Across the Lab"** — all five `/metrics` endpoints answer with Prom-format output from the Mac, each `systemctl status node_exporter` is `active (running)`, docker container `Up` on VPS, nftables amendments live on pihole + wizmood.
+
+**Gotchas vault:**
+- **Checksum + published sums must both come from the same release URL.** Don't download `sha256sums.txt` from a mirror while the tarball came from GitHub, or vice-versa. Supply-chain verification only works if both sides come from the publisher.
+- **`sha256sum -c --ignore-missing` is required** — the published sums file lists hashes for every platform (linux-amd64, darwin-arm64, etc.); without `--ignore-missing`, it errors on every one you didn't download.
+- **`systemctl enable --now` first time is fine** — the service wasn't already running, so `--now` actually starts it. Compare to the runbook 06 nftables gotcha where `enable --now` was a no-op because the service was already up.
+- **VPS node_exporter container needs `pid: host`** or it only sees its own PID 1 and reports 1 process total. Same for `/proc`, `/sys`, `/` mounts.
+- **Proxmox's host firewall layer** (`pve-firewall`) can interact with nftables unpredictably. Skip host-level firewall on HP; the LAN trust boundary is already the real control.
+- **Don't try to install node_exporter via apt on Debian 13 LXCs** — Debian's `prometheus-node-exporter` package tracks an older version (v1.6.x range typically). Fine for a lab, but you lose version pinning alignment with the compose stack. Install from upstream release for consistency.
 
 ### 🎯 Quest 4 — Wire the Nerves (+80 XP)
 
@@ -168,7 +267,9 @@ Prom's `/targets` page shows every job UP. Lab targets scrape via the subnet rou
 
 ### 🎯 Quest 6 — Watch Outward (+80 XP)
 
-*To be fleshed out.* blackbox_exporter on a lab LXC (placement TBD). Probes chckpoint's public URL. First "lab watches VPS" link — if the VPS burns down, the lab notices.
+*To be fleshed out.* blackbox_exporter on a lab LXC (placement TBD). Probe targets:
+- **chckpoint public URL** — first "lab watches VPS" link; if the VPS burns down, the lab notices
+- **wizmood `:8080` dashboard** — fills the "is wizmood responding" gap left by skipping node_exporter on it in Quest 3
 
 ### 🎯 Quest 7 — Count the Queries (+60 XP)
 
@@ -228,3 +329,6 @@ Reproduced here because they bite again every time:
 |---|---|
 | 2026-10-21 | Runbook created. Quest 1 (subnet router on `ts`) written and ready to execute; Quests 2–9 stubbed. |
 | 2026-11-11 | Quest 1 cleared. `ts` advertises `192.168.50.0/24`, VPS accepts routes (`--accept-routes --ssh`, SSH flag preserved thanks to Tailscale's reset-check), end-to-end verified: `tailscale ping` returns subnet-route pongs, `curl http://192.168.50.5/admin/` returns 302 from VPS. Added gotchas: Tailscale 1.60+ catches the flag-eater; subnet routes live in kernel routing table 52 (not main), so `ip route` alone won't show them; UDP GRO warning is cosmetic at lab scale. `--accept-dns=false` on `ts` preserved Pi-hole as resolver (resolv.conf = `192.168.50.5`, not MagicDNS). |
+| 2026-11-14 | Quest 2 cleared. Observability stack live on VPS: `prom/prometheus:v3.16.0`, `grafana/grafana-oss:13.0.2`, `prom/alertmanager:v0.35.0`, all bound to `100.113.225.49` (tailnet IP), all three health endpoints return OK from Mac, `nmap -Pn -p 9090,3000,9093 <vps-public>` reports all three `filtered` (no public leak). Deployed via `vikrant`-user sparse-checkout of `mancave.lab` repo on VPS (deploy key, `services/observability` only). Compose joins `deploy_default` (chckpoint's network, external) so future Prom scrapes of chckpoint work by container name. New gotchas: don't guess image tags — always verify against hub.docker.com's tags API before committing (we burned a round-trip on a plausible-but-fake `grafana/grafana-oss:13.3.1`). Docker group membership = root-equivalent on the host via `/var/run/docker.sock`; `newgrp` refreshes group creds in-place after `usermod -aG`. |
+| 2026-11-17 | Quest 4 cleared + Act I mini-boss defeated. `prometheus.yml` wired: 7 live scrape jobs (prometheus self, alertmanager, grafana, node-lab × 3 via Pi-hole hostnames + subnet route, node-vps container) + 2 placeholder jobs (chckpoint-backend, caddy) deliberately DOWN until wired on the chckpoint side. Lab targets use `pve.mancave.lab`/`pihole.mancave.lab`/`ts.mancave.lab` hostnames — Pi-hole circular dependency accepted intentionally (filed as HA DNS Open question). Service discovery tiered as Open questions: Tier 2 (Pi-hole-as-DHCP, auto-generated DNS from leases), Tier 3 (Consul etc.), Tier 1.5 (IaC) — see context.md. **Big new gotcha banked:** bind-mounting a single file + `git pull`-style atomic replace = inode trap. Host path's inode changes but container's bind mount still points at the old inode; SIGHUP then "reloads" the stale content. Signature: `md5sum` mismatch between host and container. Fix: `docker compose restart <service>` after every config pull; `kill -HUP 1` only works on in-place edits that preserve inode (which `git pull` doesn't do). Runbook's Quest 2 boss mechanic 3 updated accordingly. |
+| 2026-11-17 | Quest 3 cleared. node_exporter v1.12.1 deployed on 4 of 5 planned hosts: VPS (docker container on `observability_net`), HP/`pve` (systemd + binary, no firewall step), `ts` LXC (systemd + binary), `pihole` LXC (systemd + binary + nftables amendment: `9100` added to existing `dport { 22, 53, 80 }` set). **Wizmood deliberately skipped** — host-level metrics add little value for a Spotify-reactive bulb service; coverage deferred to Quest 6 (blackbox probe against wizmood's `:8080` dashboard) and later service-specific instrumentation. All 4 endpoints return Prom-format output from Mac over the tailnet + subnet route. SHA256 verification baked into the install recipe after retroactive verify on HP's install. New gotchas: `curl` over HTTPS verifies transport only, not content — always `sha256sum -c sha256sums.txt --ignore-missing` BEFORE extract/install; `--no-create-home --shell /usr/sbin/nologin` for service users means zero attack surface beyond the running process's `/proc` entry; systemd `User=`/`Group=` is the only place `node_exporter` user is referenced, and systemd `setuid()`s before `exec()`. Scrape config wiring deferred to Quest 4. |
