@@ -31,15 +31,21 @@ scrape_configs:
       - targets: ['grafana:3000']
 
   # Lab hosts via subnet router on ts.
-  # IPs are reserved on TP-Link EXCEPT ts (currently on DHCP lease .102 —
-  # will become hostname-based once we land Tier 2 service discovery via
-  # Pi-hole-as-DHCP, see context.md Open questions).
+  # Hostnames resolved via Tailscale Split DNS (100.100.100.100) → forwarded
+  # to Pi-hole (192.168.50.5) for *.mancave.lab queries. Pi-hole's local
+  # records live in services/pihole/hosts (deployed via pihole-FTL --config).
+  #
+  # Known-accepted circular dependency: if Pi-hole dies, DNS for lab names
+  # fails, ALL three lab scrapes go DOWN (not just pihole). This is the
+  # "monitoring depends on monitored" trap, accepted intentionally while
+  # the lab is small (fix: add secondary DNS on VPS when it bites). See
+  # context.md Open questions for the Tier 2 / HA-DNS path.
   - job_name: node-lab
     static_configs:
       - targets:
-          - '192.168.50.10:9100'    # pve (HP host)
-          - '192.168.50.5:9100'     # pihole LXC
-          - '192.168.50.102:9100'   # ts LXC — DHCP lease, update after Tier 2
+          - 'pve.mancave.lab:9100'
+          - 'pihole.mancave.lab:9100'
+          - 'ts.mancave.lab:9100'
         labels:
           environment: lab
 
