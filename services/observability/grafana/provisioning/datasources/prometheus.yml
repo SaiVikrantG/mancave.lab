@@ -1,5 +1,14 @@
 apiVersion: 1
 
+# One-time cleanup: the original Quest 2 provisioning created a Prometheus
+# datasource with an auto-generated UID. Quest 5 pins the UID to the string
+# `prometheus` so community dashboards resolve against it without wizard import.
+# This delete block removes the old record on each start before the datasource
+# below is provisioned; it's a no-op once the migration has run.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
 datasources:
   - name: Prometheus
     uid: prometheus
