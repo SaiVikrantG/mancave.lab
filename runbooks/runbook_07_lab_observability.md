@@ -39,7 +39,7 @@ A monitoring adventure in 3 acts, 9 quests, and 1 real boss fight (a self-induce
 | I | 3 | Plant the Sensors (node_exporter × 4; wizmood skipped) | [x] |
 | I | 4 | Wire the Nerves (scrape config + placeholder jobs) | [x] |
 | I | ⚔️ | **Mini-boss:** every target green on Prom's `/targets` page | [x] |
-| II | 5 | Paint the Walls (community dashboards 1860, Caddy, Go) | [ ] |
+| II | 5 | Paint the Walls (community dashboards 1860, Caddy, Go) | [x] |
 | II | 6 | Watch Outward (blackbox_exporter — first lab-watches-VPS link) | [ ] |
 | II | 7 | Count the Queries (`eko/pihole-exporter`) | [ ] |
 | III | 8 | Teach the Oracle to Speak (Alertmanager rules + ntfy) | [ ] |
@@ -261,9 +261,36 @@ Prom's `/targets` page shows every job UP. Lab targets scrape via the subnet rou
 
 *Visible, no alerts yet. Mistakes here are embarrassing but not pager-worthy.*
 
-### 🎯 Quest 5 — Paint the Walls (+60 XP)
+### 🎯 Quest 5 — Paint the Walls (+60 XP) ✅
 
-*To be fleshed out.* Import dashboards 1860 (node_exporter full), Caddy, Go runtime. Commit dashboard JSON to `services/grafana/dashboards/`. No custom dashboards (yet).
+**Goal.** Turn raw Prom metrics into glance-able pictures. Three community dashboards, provisioned from Git (not clicked in via Grafana's Import wizard) so they survive volume loss, diff in review, and deploy consistently.
+
+**Imported.**
+
+| Dashboard | Grafana.com ID | Folder | Status at import |
+|---|---|---|---|
+| Node Exporter Full | `1860` | `node/` | ✅ live data, 4 hosts across 2 jobs |
+| Caddy Monitoring | `20802` | `web/` | 🟡 placeholder — waits on Caddy admin `/metrics`; Loki panels deliberately broken |
+| Go Metrics | `10826` | `app/` | ✅ unexpectedly populated — node_exporter + Prom + Grafana + Alertmanager are all Go binaries |
+
+**Moves run.**
+1. Fetched 1860 JSON from `grafana.com/api/dashboards/1860/revisions/<rev>/download` (pinned revision, not `latest`, for reproducibility).
+2. Normalized the datasource UID — set `uid: prometheus` in `provisioning/datasources/prometheus.yml` so community dashboards' `${DS_PROMETHEUS}` template var resolves against our provisioned Prom without wizard import.
+3. Fetched Caddy + Go dashboards, same pattern. Both needed jq fix-up to rewrite baked-in datasource UIDs onto `prometheus` (upstream dashboards carry the exporter's own instance UIDs as artifacts).
+4. Deployed: committed JSONs + YAML, pulled on VPS, `docker compose restart grafana`.
+5. Verified in browser.
+
+**Boss mechanics encountered.**
+- **Datasource UID migration foot-gun.** Adding `uid: prometheus` to an already-provisioned datasource (originally created with an auto-generated UID in Quest 2) halted Grafana startup: the modern provisioner is UID-keyed, so the YAML looked like a new record while the name collided with the old one. Fix: added `deleteDatasources:` block to purge the old record before provisioning. Idempotent — no-op after first run. Fresh installs never hit this; it's pure migration pain.
+- **Community dashboard datasource rot.** 1860 ships clean (`${DS_PROMETHEUS}` template var). 20802 and 10826 ship with the original author's instance UIDs baked in (`beok7uikyo1kwf` in Go's case) — all panels fail to resolve without fix-up. `jq` walk-and-rewrite is the one-liner cure; cost is that files no longer round-trip against upstream re-fetches.
+- **K8s-biased template vars.** Dashboard 10826 (Go Metrics) uses `namespace` and `pod` template dropdowns for filtering — meaningless on bare-metal. All series render overlaid without filtering. Tolerable for ~6 Go processes; would need an `instance`/`job` rewrite or a swap if we add more Go services. Logged, not fixed.
+- **Loki panels remain broken on Caddy.** Deliberate — Loki is out of scope. Caddy is a placeholder dashboard anyway; revisit when Caddy admin metrics are actually live.
+
+**New gotcha (worth remembering):** Grafana datasource YAML changes (including uid) require a full container restart, not just SIGHUP — the provisioner only runs at process start. Dashboard JSON changes, by contrast, are picked up live by the file provisioner's polling loop.
+
+**Realization from the dashboard surfing:** `go_*` metrics flow from every Go binary with `promhttp.Handler()`. Our stack has four Go processes we never thought to "instrument" — Prom, Grafana, Alertmanager, node_exporter — and all of them populate the Go runtime dashboard for free. The observability stack monitors itself before any user app opts in.
+
+---
 
 ### 🎯 Quest 6 — Watch Outward (+80 XP)
 
