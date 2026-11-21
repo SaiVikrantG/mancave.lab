@@ -31,15 +31,6 @@ scrape_configs:
       - targets: ['grafana:3000']
 
   # Lab hosts via subnet router on ts.
-  # Hostnames resolved via Tailscale Split DNS (100.100.100.100) → forwarded
-  # to Pi-hole (192.168.50.5) for *.mancave.lab queries. Pi-hole's local
-  # records live in services/pihole/hosts (deployed via pihole-FTL --config).
-  #
-  # Known-accepted circular dependency: if Pi-hole dies, DNS for lab names
-  # fails, ALL three lab scrapes go DOWN (not just pihole). This is the
-  # "monitoring depends on monitored" trap, accepted intentionally while
-  # the lab is small (fix: add secondary DNS on VPS when it bites). See
-  # context.md Open questions for the Tier 2 / HA-DNS path.
   - job_name: node-lab
     static_configs:
       - targets:

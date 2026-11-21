@@ -32,3 +32,11 @@ Setup router :), and set up Tailscale as an LXC:
 
 <img src="public/20261013_185647.jpg" alt="Router Setup" style="width: 100%; max-width: 800px; border-radius: 4px;" />
 <img src="public/Screenshot 2026-10-14 at 10.51.56 PM.png" alt="T" style="width: 100%; max-width: 800px; border-radius: 4px;" />
+
+---
+
+November 21st, 2026:
+
+Dashboards are up!
+
+<img src="public/Screenshot 2026-11-21 at 12.16.45 PM.png" alt="Dashboard Setup" style="width: 100%; max-width: 800px; border-radius: 4px;" />
